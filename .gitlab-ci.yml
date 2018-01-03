@@ -1,0 +1,33 @@
+variables:
+  MAVEN_OPTS: "-Djava.awt.headless=true"
+
+stages:
+  - package
+  - deliver
+
+package_to_jar:
+  tags:
+    - ita
+  stage: package
+  script:
+      - mvn clean package -B "$MAVEN_OPTS"
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - target/*.jar
+    when: always
+
+deploy_the_jar:
+  tags:
+    - container
+  stage: deliver
+  before_script:
+    - if [ "$CI_COMMIT_REF_NAME" != "master" ]; then export IMAGE_TAG=$(echo -en $CI_COMMIT_REF_NAME | tr -c '[:alnum:]_.-' '-'); else export IMAGE_TAG="latest";fi
+    - chmod +x rootfs/app-entrypoint.sh
+    - docker login -u "gitlab-ci-token" -p "$CI_JOB_TOKEN" $CI_REGISTRY
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE:$IMAGE_TAG" .
+    - docker push "$CI_REGISTRY_IMAGE:$IMAGE_TAG"
+  after_script:
+    - docker volume ls -qf dangling=true | xargs -r docker volume rm
+    - docker rm $(docker ps -qa --no-trunc --filter "status=exited")
